@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLBB Account Matcher</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .card {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border: none;
+            margin-bottom: 20px;
+        }
+        .result-item {
+            transition: all 0.3s ease;
+            border-left: 4px solid #667eea;
+        }
+        .result-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .password-match {
+            border-left-color: #28a745 !important;
+        }
+        .password-mismatch {
+            border-left-color: #dc3545 !important;
+        }
+        .badge-tier {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .field-value {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .copy-btn {
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .copy-btn:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <!-- Header -->
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <h1 class="display-5 mb-3"><i class="fas fa-gamepad me-2"></i>MLBB Account Matcher</h1>
+                        <p class="lead">Match email:password combos with account details and extract key information</p>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Upload your combo list and account info files to find matches and extract important account data.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Upload Section -->
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h4 class="mb-0"><i class="fas fa-upload me-2"></i>Upload Files</h4>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Combo File (email:password)</label>
+                                <div class="input-group">
+                                    <input type="file" class="form-control" id="comboFile" accept=".txt">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('comboFile').value=''">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <small class="text-muted">One email:password per line</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Account Info File</label>
+                                <div class="input-group">
+                                    <input type="file" class="form-control" id="infoFile" accept=".txt">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('infoFile').value=''">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <small class="text-muted">Formatted account information</small>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="strictMode" checked>
+                                    <label class="form-check-label" for="strictMode">
+                                        Strict Mode (Require exact password match)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success btn-lg w-100" onclick="processFiles()">
+                            <i class="fas fa-play me-2"></i>Process Files
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div class="card mb-4" id="resultsSection" style="display: none;">
+                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Results</h4>
+                        <div>
+                            <button class="btn btn-light btn-sm me-2" onclick="exportToJSON()">
+                                <i class="fas fa-download me-1"></i>JSON
+                            </button>
+                            <button class="btn btn-light btn-sm" onclick="exportToTxt()">
+                                <i class="fas fa-file-alt me-1"></i>TXT
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Statistics -->
+                        <div class="row" id="stats"></div>
+                        
+                        <!-- Matched Accounts -->
+                        <div id="matchedAccounts"></div>
+                        
+                        <!-- Summary -->
+                        <div class="row mt-4">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">Unmatched Combos</div>
+                                    <div class="card-body">
+                                        <div id="unmatchedCombos" style="max-height: 200px; overflow-y: auto;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">Unmatched Info Accounts</div>
+                                    <div class="card-body">
+                                        <div id="unmatchedInfo" style="max-height: 200px; overflow-y: auto;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Field Extractor -->
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h4 class="mb-0"><i class="fas fa-filter me-2"></i>Field Extractor</h4>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldID" checked>
+                                    <label class="form-check-label" for="fieldID">ID & Server</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldLastLogin" checked>
+                                    <label class="form-check-label" for="fieldLastLogin">Last Login</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldRanks" checked>
+                                    <label class="form-check-label" for="fieldRanks">Current & Max Rank</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldBindings" checked>
+                                    <label class="form-check-label" for="fieldBindings">Bindings</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldSkins" checked>
+                                    <label class="form-check-label" for="fieldSkins">Skin Counts</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldIGN" checked>
+                                    <label class="form-check-label" for="fieldIGN">IGN (Name)</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldLevel" checked>
+                                    <label class="form-check-label" for="fieldLevel">Level</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fieldWinRate" checked>
+                                    <label class="form-check-label" for="fieldWinRate">Win Rate</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let processingData = null;
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        function parseComboFile(content) {
+            const combos = [];
+            const lines = content.split('\n');
+            
+            for (let line of lines) {
+                line = line.trim();
+                if (!line) continue;
+                
+                // Handle different delimiters
+                let email, password;
+                if (line.includes(':')) {
+                    const parts = line.split(':');
+                    email = parts[0].trim();
+                    password = parts.slice(1).join(':').trim();
+                } else if (line.includes(';')) {
+                    const parts = line.split(';');
+                    email = parts[0].trim();
+                    password = parts.slice(1).join(';').trim();
+                } else if (line.includes('|')) {
+                    const parts = line.split('|');
+                    email = parts[0].trim();
+                    password = parts.slice(1).join('|').trim();
+                } else {
+                    continue;
+                }
+                
+                if (email && password) {
+                    combos.push({
+                        email: email.toLowerCase(),
+                        password: password,
+                        original: line
+                    });
+                }
+            }
+            
+            return combos;
+        }
+
+        function parseInfoFile(content) {
+            const accounts = [];
+            const blocks = content.split(/\n---\n|\n-{10,}\n|\n\*\*\*\*\*\*\*\*\*\*\n/);
+            
+            for (let block of blocks) {
+                block = block.trim();
+                if (!block) continue;
+                
+                const lines = block.split('\n');
+                if (lines.length < 2) continue;
+                
+                // Parse first line
+                let firstLine = lines[0].trim();
+                // Remove leading number and dot if present
+                firstLine = firstLine.replace(/^\d+\.\s*/, '');
+                
+                let email, password;
+                if (firstLine.includes(':')) {
+                    const parts = firstLine.split(':');
+                    email = parts[0].trim();
+                    password = parts.slice(1).join(':').trim();
+                } else {
+                    continue;
+                }
+                
+                if (!email) continue;
+                
+                // Parse fields
+                const fields = {};
+                for (let i = 1; i < lines.length; i++) {
+                    let line = lines[i].trim();
+                    if (!line || line.startsWith('---')) continue;
+                    
+                    // Handle multi-line fields
+                    if (line.includes(':')) {
+                        const colonIndex = line.indexOf(':');
+                        const key = line.substring(0, colonIndex).trim();
+                        const value = line.substring(colonIndex + 1).trim();
+                        
+                        // Check for continuation lines
+                        let j = i + 1;
+                        while (j < lines.length && lines[j].trim() && !lines[j].trim().includes(':')) {
+                            value += ' ' + lines[j].trim();
+                            j++;
+                        }
+                        if (j > i + 1) i = j - 1;
+                        
+                        fields[key] = value;
+                    }
+                }
+                
+                accounts.push({
+                    email: email.toLowerCase(),
+                    password: password,
+                    fields: fields,
+                    original: block
+                });
+            }
+            
+            return accounts;
+        }
+
+        function extractIDAndServer(idField) {
+            if (!idField) return { id: 'N/A', server: 'N/A' };
+            
+            // Try to extract server from parentheses
+            const serverMatch = idField.match(/\((\d+)\)/);
+            const server = serverMatch ? serverMatch[1] : 'N/A';
+            
+            // Extract ID (first number)
+            const idMatch = idField.match(/(\d+)/);
+            const id = idMatch ? idMatch[1] : 'N/A';
+            
+            return { id, server };
+        }
+
+        function extractSkinCounts(fields) {
+            const skins = {
+                grand: '0',
+                exquisite: '0',
+                deluxe: '0',
+                exceptional: '0',
+                common: '0',
+                total: '0'
+            };
+            
+            // Try to find skin counts in various formats
+            for (const [key, value] of Object.entries(fields)) {
+                if (key.toLowerCase().includes('skin count')) {
+                    skins.total = value.match(/\d+/)?.[0] || '0';
+                }
+                if (key.includes('Grand Skins')) {
+                    skins.grand = value.match(/\d+/)?.[0] || '0';
+                }
+                if (key.includes('Exquisite Skins')) {
+                    skins.exquisite = value.match(/\d+/)?.[0] || '0';
+                }
+                if (key.includes('Deluxe Skins')) {
+                    skins.deluxe = value.match(/\d+/)?.[0] || '0';
+                }
+                if (key.includes('Exceptional Skins')) {
+                    skins.exceptional = value.match(/\d+/)?.[0] || '0';
+                }
+                if (key.includes('Common Skins')) {
+                    skins.common = value.match(/\d+/)?.[0] || '0';
+                }
+            }
+            
+            return skins;
+        }
+
+        function findMatches(combos, accounts, strictMode) {
+            const matches = [];
+            const comboMap = new Map();
+            const accountMap = new Map();
+            
+            // Create maps for faster lookup
+            combos.forEach(combo => comboMap.set(combo.email, combo));
+            accounts.forEach(account => accountMap.set(account.email, account));
+            
+            // Find matches
+            for (const [email, combo] of comboMap.entries()) {
+                const account = accountMap.get(email);
+                if (account) {
+                    const passwordMatch = strictMode ? 
+                        combo.password === account.password : 
+                        true;
+                    
+                    const { id, server } = extractIDAndServer(account.fields.ID || account.fields['ID:']);
+                    const skins = extractSkinCounts(account.fields);
+                    
+                    matches.push({
+                        email: email,
+                        comboPassword: combo.password,
+                        infoPassword: account.password,
+                        passwordMatch: passwordMatch,
+                        fields: account.fields,
+                        id: id,
+                        server: server,
+                        skins: skins,
+                        comboOriginal: combo.original,
+                        infoOriginal: account.original
+                    });
+                    
+                    // Remove from maps to track unmatched later
+                    comboMap.delete(email);
+                    accountMap.delete(email);
+                }
+            }
+            
+            return {
+                matches: matches,
+                unmatchedCombos: Array.from(comboMap.values()),
+                unmatchedAccounts: Array.from(accountMap.values())
+            };
+        }
+
+        function getSelectedFields() {
+            const fields = [];
+            if (document.getElementById('fieldID').checked) fields.push('id');
+            if (document.getElementById('fieldLastLogin').checked) fields.push('lastLogin');
+            if (document.getElementById('fieldRanks').checked) fields.push('ranks');
+            if (document.getElementById('fieldBindings').checked) fields.push('bindings');
+            if (document.getElementById('fieldSkins').checked) fields.push('skins');
+            if (document.getElementById('fieldIGN').checked) fields.push('ign');
+            if (document.getElementById('fieldLevel').checked) fields.push('level');
+            if (document.getElementById('fieldWinRate').checked) fields.push('winRate');
+            return fields;
+        }
+
+        function formatFieldValue(key, value) {
+            if (!value || value === 'N/A') return 'N/A';
+            
+            switch(key) {
+                case 'lastLogin':
+                    // Extract date part
+                    const dateMatch = value.match(/(\d{4}\/\d{2}\/\d{2})/);
+                    return dateMatch ? dateMatch[1] : value;
+                case 'ranks':
+                    return value;
+                case 'bindings':
+                    return value.split(',').map(b => b.trim()).join(', ');
+                case 'skins':
+                    if (typeof value === 'object') {
+                        return `G:${value.grand} E:${value.exquisite} D:${value.deluxe} X:${value.exceptional} C:${value.common}`;
+                    }
+                    return value;
+                default:
+                    return value;
+            }
+        }
+
+        function displayResults(results) {
+            // Display statistics
+            const statsHtml = `
+                <div class="col-md-3">
+                    <div class="stat-card text-center">
+                        <h6>Total Combos</h6>
+                        <h3>${results.combosCount}</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card text-center">
+                        <h6>Account Infos</h6>
+                        <h3>${results.accountsCount}</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card text-center">
+                        <h6>Matches Found</h6>
+                        <h3>${results.matches.length}</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card text-center">
+                        <h6>Password Match</h6>
+                        <h3>${results.passwordMatches}</h3>
+                    </div>
+                </div>
+            `;
+            document.getElementById('stats').innerHTML = statsHtml;
+            
+            // Display matched accounts
+            let matchesHtml = '<h5 class="mb-3">Matched Accounts</h5>';
+            
+            if (results.matches.length === 0) {
+                matchesHtml += '<div class="alert alert-warning">No matches found between files.</div>';
+            } else {
+                const selectedFields = getSelectedFields();
+                
+                results.matches.forEach((match, index) => {
+                    const fields = match.fields;
+                    const skins = match.skins;
+                    
+                    matchesHtml += `
+                        <div class="card mb-3 result-item ${match.passwordMatch ? 'password-match' : 'password-mismatch'}">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>${index + 1}. ${match.email}</strong>
+                                    ${match.passwordMatch ? 
+                                        '<span class="badge bg-success ms-2"><i class="fas fa-check me-1"></i>Password Match</span>' : 
+                                        '<span class="badge bg-danger ms-2"><i class="fas fa-times me-1"></i>Password Mismatch</span>'}
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary copy-btn" onclick="copyToClipboard('${match.email}:${match.comboPassword}')">
+                                    <i class="fas fa-copy"></i> Copy
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                    `;
+                    
+                    if (selectedFields.includes('id')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">ID & Server</small>
+                                <div class="field-value">${match.id} (${match.server})</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('ign')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">IGN</small>
+                                <div class="field-value">${fields.Name || fields['Name:'] || 'N/A'}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('level')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">Level</small>
+                                <div class="field-value">${fields.Level || fields['Level:'] || 'N/A'}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('lastLogin')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">Last Login</small>
+                                <div class="field-value">${formatFieldValue('lastLogin', fields['Last Login'] || fields['Last Login:'])}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('ranks')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">Current / Max Rank</small>
+                                <div class="field-value">
+                                    ${fields['Current Tier'] || fields['Current Tier:'] || 'N/A'} / 
+                                    ${fields['Max Tier'] || fields['Max Tier:'] || 'N/A'}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('winRate')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">Win Rate</small>
+                                <div class="field-value">${fields['Win Rate'] || fields['Win Rate:'] || 'N/A'}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('bindings')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">Bindings</small>
+                                <div class="field-value">${fields['Bind Accounts'] || fields['Bind Accounts:'] || 'N/A'}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (selectedFields.includes('skins')) {
+                        matchesHtml += `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted">Skins (G/E/D/X/C)</small>
+                                <div class="field-value">${formatFieldValue('skins', skins)}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    matchesHtml += `
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-md-6">
+                                        <small class="text-muted">Combo Password</small>
+                                        <div class="field-value">${match.comboPassword}</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <small class="text-muted">Info Password</small>
+                                        <div class="field-value">${match.infoPassword}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            document.getElementById('matchedAccounts').innerHTML = matchesHtml;
+            
+            // Display unmatched combos
+            let unmatchedCombosHtml = '';
+            results.unmatchedCombos.forEach(combo => {
+                unmatchedCombosHtml += `<div class="mb-1"><small>${combo.email}</small></div>`;
+            });
+            document.getElementById('unmatchedCombos').innerHTML = unmatchedCombosHtml || '<div class="text-muted">None</div>';
+            
+            // Display unmatched accounts
+            let unmatchedInfoHtml = '';
+            results.unmatchedAccounts.forEach(account => {
+                unmatchedInfoHtml += `<div class="mb-1"><small>${account.email}</small></div>`;
+            });
+            document.getElementById('unmatchedInfo').innerHTML = unmatchedInfoHtml || '<div class="text-muted">None</div>';
+            
+            // Show results section
+            document.getElementById('resultsSection').style.display = 'block';
+        }
+
+        async function processFiles() {
+            const comboFile = document.getElementById('comboFile').files[0];
+            const infoFile = document.getElementById('infoFile').files[0];
+            const strictMode = document.getElementById('strictMode').checked;
+            
+            if (!comboFile || !infoFile) {
+                alert('Please select both files!');
+                return;
+            }
+            
+            showLoading(true);
+            
+            try {
+                // Read files
+                const comboText = await comboFile.text();
+                const infoText = await infoFile.text();
+                
+                // Parse files
+                const combos = parseComboFile(comboText);
+                const accounts = parseInfoFile(infoText);
+                
+                // Find matches
+                const results = findMatches(combos, accounts, strictMode);
+                
+                // Calculate password matches
+                const passwordMatches = results.matches.filter(m => m.passwordMatch).length;
+                
+                // Prepare display data
+                processingData = {
+                    combosCount: combos.length,
+                    accountsCount: accounts.length,
+                    matches: results.matches,
+                    passwordMatches: passwordMatches,
+                    unmatchedCombos: results.unmatchedCombos,
+                    unmatchedAccounts: results.unmatchedAccounts
+                };
+                
+                // Display results
+                displayResults(processingData);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error processing files: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Show temporary feedback
+                const originalText = event.target.innerHTML;
+                event.target.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                event.target.classList.remove('btn-outline-primary');
+                event.target.classList.add('btn-success');
+                
+                setTimeout(() => {
+                    event.target.innerHTML = originalText;
+                    event.target.classList.remove('btn-success');
+                    event.target.classList.add('btn-outline-primary');
+                }, 2000);
+            });
+        }
+
+        function exportToJSON() {
+            if (!processingData) {
+                alert('No data to export!');
+                return;
+            }
+            
+            const exportData = {
+                timestamp: new Date().toISOString(),
+                stats: {
+                    totalCombos: processingData.combosCount,
+                    totalAccounts: processingData.accountsCount,
+                    matchesFound: processingData.matches.length,
+                    passwordMatches: processingData.passwordMatches
+                },
+                matches: processingData.matches.map(match => ({
+                    email: match.email,
+                    password: match.comboPassword,
+                    passwordMatch: match.passwordMatch,
+                    id: match.id,
+                    server: match.server,
+                    ign: match.fields.Name || match.fields['Name:'],
+                    level: match.fields.Level || match.fields['Level:'],
+                    lastLogin: match.fields['Last Login'] || match.fields['Last Login:'],
+                    currentRank: match.fields['Current Tier'] || match.fields['Current Tier:'],
+                    maxRank: match.fields['Max Tier'] || match.fields['Max Tier:'],
+                    winRate: match.fields['Win Rate'] || match.fields['Win Rate:'],
+                    bindings: match.fields['Bind Accounts'] || match.fields['Bind Accounts:'],
+                    skins: match.skins
+                })),
+                unmatchedCombos: processingData.unmatchedCombos.map(c => c.email),
+                unmatchedAccounts: processingData.unmatchedAccounts.map(a => a.email)
+            };
+            
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            
+            const exportFileDefaultName = `mlbb_matches_${new Date().toISOString().split('T')[0]}.json`;
+            
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        }
+
+        function exportToTxt() {
+            if (!processingData) {
+                alert('No data to export!');
+                return;
+            }
+            
+            let txtContent = `MLBB Account Matcher Results - ${new Date().toLocaleString()}\n`;
+            txtContent += '='.repeat(60) + '\n\n';
+            
+            txtContent += `STATISTICS:\n`;
+            txtContent += `Total Combos: ${processingData.combosCount}\n`;
+            txtContent += `Total Account Infos: ${processingData.accountsCount}\n`;
+            txtContent += `Matches Found: ${processingData.matches.length}\n`;
+            txtContent += `Password Matches: ${processingData.passwordMatches}\n\n`;
+            
+            txtContent += `MATCHED ACCOUNTS:\n`;
+            txtContent += '='.repeat(60) + '\n\n';
+            
+            processingData.matches.forEach((match, index) => {
+                txtContent += `${index + 1}. ${match.email}:${match.comboPassword}\n`;
+                txtContent += `   Password Match: ${match.passwordMatch ? 'YES' : 'NO'}\n`;
+                txtContent += `   ID: ${match.id} (Server: ${match.server})\n`;
+                txtContent += `   IGN: ${match.fields.Name || match.fields['Name:'] || 'N/A'}\n`;
+                txtContent += `   Level: ${match.fields.Level || match.fields['Level:'] || 'N/A'}\n`;
+                txtContent += `   Last Login: ${match.fields['Last Login'] || match.fields['Last Login:'] || 'N/A'}\n`;
+                txtContent += `   Rank: ${match.fields['Current Tier'] || match.fields['Current Tier:'] || 'N/A'} / ${match.fields['Max Tier'] || match.fields['Max Tier:'] || 'N/A'}\n`;
+                txtContent += `   Win Rate: ${match.fields['Win Rate'] || match.fields['Win Rate:'] || 'N/A'}\n`;
+                txtContent += `   Bindings: ${match.fields['Bind Accounts'] || match.fields['Bind Accounts:'] || 'N/A'}\n`;
+                txtContent += `   Skins - Grand:${match.skins.grand} Exquisite:${match.skins.exquisite} Deluxe:${match.skins.deluxe} Exceptional:${match.skins.exceptional} Common:${match.skins.common}\n`;
+                txtContent += '\n';
+            });
+            
+            const dataStr = txtContent;
+            const dataUri = 'data:text/plain;charset=utf-8,'+ encodeURIComponent(dataStr);
+            
+            const exportFileDefaultName = `mlbb_matches_${new Date().toISOString().split('T')[0]}.txt`;
+            
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        }
+
+        // Initialize tooltips
+        document.addEventListener('DOMContentLoaded', function() {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+</body>
+</html>
