@@ -81,6 +81,15 @@
         .copy-btn:hover {
             transform: scale(1.1);
         }
+        .debug-info {
+            background: #f8f9fa;
+            border-left: 4px solid #ffc107;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-size: 12px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -96,10 +105,9 @@
                     <div class="card-body text-center">
                         <h1 class="display-5 mb-3"><i class="fas fa-gamepad me-2"></i>MLBB Account Matcher</h1>
                         <p class="lead">Match email:password combos with account details and extract key information</p>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            Upload your combo list and account info files to find matches and extract important account data.
-                        </div>
+                        <button class="btn btn-outline-light btn-sm" onclick="toggleDebug()">
+                            <i class="fas fa-bug me-1"></i>Debug Mode
+                        </button>
                     </div>
                 </div>
 
@@ -128,7 +136,7 @@
                                         <i class="fas fa-times"></i>
                                     </button>
                                 </div>
-                                <small class="text-muted">Formatted account information</small>
+                                <small class="text-muted">Formatted account information with --- separators</small>
                             </div>
                         </div>
                         
@@ -147,6 +155,12 @@
                             <i class="fas fa-play me-2"></i>Process Files
                         </button>
                     </div>
+                </div>
+
+                <!-- Debug Info -->
+                <div class="debug-info" id="debugInfo">
+                    <strong>Debug Info:</strong>
+                    <div id="debugContent"></div>
                 </div>
 
                 <!-- Results Section -->
@@ -255,12 +269,30 @@
 
     <script>
         let processingData = null;
+        let debugMode = false;
+
+        function toggleDebug() {
+            debugMode = !debugMode;
+            document.getElementById('debugInfo').style.display = debugMode ? 'block' : 'none';
+            if (debugMode) {
+                console.log("Debug mode enabled");
+            }
+        }
+
+        function logDebug(message) {
+            if (debugMode) {
+                const debugDiv = document.getElementById('debugContent');
+                debugDiv.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+                console.log(message);
+            }
+        }
 
         function showLoading(show) {
             document.getElementById('loading').style.display = show ? 'flex' : 'none';
         }
 
         function parseComboFile(content) {
+            logDebug("Parsing combo file...");
             const combos = [];
             const lines = content.split('\n');
             
@@ -295,68 +327,136 @@
                 }
             }
             
+            logDebug(`Found ${combos.length} combos in combo file`);
             return combos;
         }
 
         function parseInfoFile(content) {
+            logDebug("Parsing info file...");
             const accounts = [];
-            const blocks = content.split(/\n---\n|\n-{10,}\n|\n\*\*\*\*\*\*\*\*\*\*\n/);
             
-            for (let block of blocks) {
-                block = block.trim();
+            // FIRST: Try multiple separator patterns
+            const possibleSeparators = [
+                /\n---\n\n/g,      // --- with blank line after
+                /\n---\n/g,        // --- with just newline
+                /\n-{3,}\n/g,      // Three or more dashes
+                /\n\*{3,}\n/g,     // Three or more asterisks
+                /\n={3,}\n/g       // Three or more equals
+            ];
+            
+            let blocks = [];
+            let usedSeparator = '';
+            
+            for (const separator of possibleSeparators) {
+                const testBlocks = content.split(separator);
+                if (testBlocks.length > 1) {
+                    blocks = testBlocks;
+                    usedSeparator = separator.toString();
+                    logDebug(`Found separator: ${usedSeparator} - Split into ${blocks.length} blocks`);
+                    break;
+                }
+            }
+            
+            // If no separator found, try to split by empty lines + number pattern
+            if (blocks.length <= 1) {
+                logDebug("No standard separator found, trying alternative parsing...");
+                blocks = content.split(/\n\n+/);
+                logDebug(`Split by empty lines into ${blocks.length} blocks`);
+            }
+            
+            // SECOND: Parse each block
+            for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+                const block = blocks[blockIndex].trim();
                 if (!block) continue;
                 
-                const lines = block.split('\n');
-                if (lines.length < 2) continue;
+                logDebug(`\nProcessing block ${blockIndex + 1}:`);
+                logDebug(`Block preview: ${block.substring(0, 100)}...`);
                 
-                // Parse first line
-                let firstLine = lines[0].trim();
-                // Remove leading number and dot if present
-                firstLine = firstLine.replace(/^\d+\.\s*/, '');
-                
-                let email, password;
-                if (firstLine.includes(':')) {
-                    const parts = firstLine.split(':');
-                    email = parts[0].trim();
-                    password = parts.slice(1).join(':').trim();
-                } else {
+                const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+                if (lines.length < 2) {
+                    logDebug(`Skipping block ${blockIndex + 1} - too few lines`);
                     continue;
                 }
                 
-                if (!email) continue;
+                // Parse first line - handle different formats
+                let firstLine = lines[0];
+                logDebug(`First line: ${firstLine}`);
                 
-                // Parse fields
-                const fields = {};
-                for (let i = 1; i < lines.length; i++) {
-                    let line = lines[i].trim();
-                    if (!line || line.startsWith('---')) continue;
+                // Remove leading number and dot if present (e.g., "24. ")
+                firstLine = firstLine.replace(/^\d+\.\s*/, '');
+                logDebug(`After removing number: ${firstLine}`);
+                
+                // Extract email and password
+                let email, password;
+                if (firstLine.includes(':')) {
+                    const colonIndex = firstLine.indexOf(':');
+                    email = firstLine.substring(0, colonIndex).trim();
+                    password = firstLine.substring(colonIndex + 1).trim();
                     
-                    // Handle multi-line fields
-                    if (line.includes(':')) {
-                        const colonIndex = line.indexOf(':');
-                        const key = line.substring(0, colonIndex).trim();
-                        const value = line.substring(colonIndex + 1).trim();
-                        
-                        // Check for continuation lines
-                        let j = i + 1;
-                        while (j < lines.length && lines[j].trim() && !lines[j].trim().includes(':')) {
-                            value += ' ' + lines[j].trim();
-                            j++;
+                    // Clean up email (remove any trailing spaces or special chars)
+                    email = email.replace(/[<>\[\]()]/g, '').trim();
+                    
+                    logDebug(`Extracted - Email: ${email}, Password: ${password}`);
+                    
+                    if (!email.includes('@') || !email.includes('.')) {
+                        logDebug(`Invalid email format, skipping block`);
+                        continue;
+                    }
+                } else {
+                    logDebug(`No colon found in first line, skipping block`);
+                    continue;
+                }
+                
+                // Parse fields from remaining lines
+                const fields = {};
+                let currentKey = '';
+                let currentValue = '';
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    
+                    // Skip separator lines
+                    if (line.includes('---') || line === '' || line === ' ') {
+                        continue;
+                    }
+                    
+                    // Check if line contains a colon (new field)
+                    const colonIndex = line.indexOf(':');
+                    if (colonIndex > 0 && colonIndex < line.length - 1) {
+                        // Save previous field if exists
+                        if (currentKey) {
+                            fields[currentKey] = currentValue.trim();
                         }
-                        if (j > i + 1) i = j - 1;
                         
-                        fields[key] = value;
+                        // Start new field
+                        currentKey = line.substring(0, colonIndex).trim();
+                        currentValue = line.substring(colonIndex + 1).trim();
+                    } else if (currentKey) {
+                        // Continue current field (multi-line value)
+                        currentValue += ' ' + line.trim();
                     }
                 }
                 
-                accounts.push({
-                    email: email.toLowerCase(),
-                    password: password,
-                    fields: fields,
-                    original: block
-                });
+                // Save the last field
+                if (currentKey) {
+                    fields[currentKey] = currentValue.trim();
+                }
+                
+                // Validate we have some fields
+                if (Object.keys(fields).length > 0) {
+                    accounts.push({
+                        email: email.toLowerCase(),
+                        password: password,
+                        fields: fields,
+                        original: block
+                    });
+                    logDebug(`✓ Added account: ${email} with ${Object.keys(fields).length} fields`);
+                } else {
+                    logDebug(`✗ No fields extracted for ${email}, skipping`);
+                }
             }
             
+            logDebug(`\nTotal accounts parsed: ${accounts.length}`);
             return accounts;
         }
 
@@ -384,9 +484,12 @@
                 total: '0'
             };
             
-            // Try to find skin counts in various formats
-            for (const [key, value] of Object.entries(fields)) {
-                if (key.toLowerCase().includes('skin count')) {
+            // Find skin counts in various formats
+            for (const key in fields) {
+                const value = fields[key];
+                const lowerKey = key.toLowerCase();
+                
+                if (lowerKey.includes('skin count') && !lowerKey.includes('grand') && !lowerKey.includes('exquisite') && !lowerKey.includes('deluxe') && !lowerKey.includes('exceptional') && !lowerKey.includes('common')) {
                     skins.total = value.match(/\d+/)?.[0] || '0';
                 }
                 if (key.includes('Grand Skins')) {
@@ -410,23 +513,35 @@
         }
 
         function findMatches(combos, accounts, strictMode) {
+            logDebug("\nFinding matches...");
             const matches = [];
             const comboMap = new Map();
             const accountMap = new Map();
             
             // Create maps for faster lookup
-            combos.forEach(combo => comboMap.set(combo.email, combo));
-            accounts.forEach(account => accountMap.set(account.email, account));
+            combos.forEach(combo => {
+                comboMap.set(combo.email, combo);
+                logDebug(`Combo: ${combo.email}`);
+            });
+            
+            accounts.forEach(account => {
+                accountMap.set(account.email, account);
+                logDebug(`Account: ${account.email}`);
+            });
+            
+            logDebug(`Total combos: ${comboMap.size}, Total accounts: ${accountMap.size}`);
             
             // Find matches
+            let matchCount = 0;
             for (const [email, combo] of comboMap.entries()) {
                 const account = accountMap.get(email);
                 if (account) {
+                    matchCount++;
                     const passwordMatch = strictMode ? 
                         combo.password === account.password : 
                         true;
                     
-                    const { id, server } = extractIDAndServer(account.fields.ID || account.fields['ID:']);
+                    const { id, server } = extractIDAndServer(account.fields.ID || account.fields['ID:'] || account.fields['ID'] || '');
                     const skins = extractSkinCounts(account.fields);
                     
                     matches.push({
@@ -442,11 +557,15 @@
                         infoOriginal: account.original
                     });
                     
+                    logDebug(`✓ Match ${matchCount}: ${email} (Password match: ${passwordMatch})`);
+                    
                     // Remove from maps to track unmatched later
                     comboMap.delete(email);
                     accountMap.delete(email);
                 }
             }
+            
+            logDebug(`Total matches found: ${matches.length}`);
             
             return {
                 matches: matches,
@@ -562,7 +681,7 @@
                         matchesHtml += `
                             <div class="col-md-4 mb-2">
                                 <small class="text-muted">IGN</small>
-                                <div class="field-value">${fields.Name || fields['Name:'] || 'N/A'}</div>
+                                <div class="field-value">${fields.Name || fields['Name:'] || fields.Name || 'N/A'}</div>
                             </div>
                         `;
                     }
@@ -571,7 +690,7 @@
                         matchesHtml += `
                             <div class="col-md-4 mb-2">
                                 <small class="text-muted">Level</small>
-                                <div class="field-value">${fields.Level || fields['Level:'] || 'N/A'}</div>
+                                <div class="field-value">${fields.Level || fields['Level:'] || fields.Level || 'N/A'}</div>
                             </div>
                         `;
                     }
@@ -580,7 +699,7 @@
                         matchesHtml += `
                             <div class="col-md-4 mb-2">
                                 <small class="text-muted">Last Login</small>
-                                <div class="field-value">${formatFieldValue('lastLogin', fields['Last Login'] || fields['Last Login:'])}</div>
+                                <div class="field-value">${formatFieldValue('lastLogin', fields['Last Login'] || fields['Last Login:'] || fields['Last Login'] || 'N/A')}</div>
                             </div>
                         `;
                     }
@@ -590,8 +709,8 @@
                             <div class="col-md-4 mb-2">
                                 <small class="text-muted">Current / Max Rank</small>
                                 <div class="field-value">
-                                    ${fields['Current Tier'] || fields['Current Tier:'] || 'N/A'} / 
-                                    ${fields['Max Tier'] || fields['Max Tier:'] || 'N/A'}
+                                    ${fields['Current Tier'] || fields['Current Tier:'] || fields['Current Tier'] || 'N/A'} / 
+                                    ${fields['Max Tier'] || fields['Max Tier:'] || fields['Max Tier'] || 'N/A'}
                                 </div>
                             </div>
                         `;
@@ -601,7 +720,7 @@
                         matchesHtml += `
                             <div class="col-md-4 mb-2">
                                 <small class="text-muted">Win Rate</small>
-                                <div class="field-value">${fields['Win Rate'] || fields['Win Rate:'] || 'N/A'}</div>
+                                <div class="field-value">${fields['Win Rate'] || fields['Win Rate:'] || fields['Win Rate'] || 'N/A'}</div>
                             </div>
                         `;
                     }
@@ -610,7 +729,7 @@
                         matchesHtml += `
                             <div class="col-md-4 mb-2">
                                 <small class="text-muted">Bindings</small>
-                                <div class="field-value">${fields['Bind Accounts'] || fields['Bind Accounts:'] || 'N/A'}</div>
+                                <div class="field-value">${fields['Bind Accounts'] || fields['Bind Accounts:'] || fields['Bind Accounts'] || 'N/A'}</div>
                             </div>
                         `;
                     }
@@ -663,6 +782,9 @@
         }
 
         async function processFiles() {
+            // Clear debug
+            document.getElementById('debugContent').innerHTML = '';
+            
             const comboFile = document.getElementById('comboFile').files[0];
             const infoFile = document.getElementById('infoFile').files[0];
             const strictMode = document.getElementById('strictMode').checked;
@@ -678,6 +800,10 @@
                 // Read files
                 const comboText = await comboFile.text();
                 const infoText = await infoFile.text();
+                
+                logDebug(`Combo file size: ${comboText.length} chars`);
+                logDebug(`Info file size: ${infoText.length} chars`);
+                logDebug(`Info file preview (first 500 chars):\n${infoText.substring(0, 500)}...`);
                 
                 // Parse files
                 const combos = parseComboFile(comboText);
@@ -702,8 +828,12 @@
                 // Display results
                 displayResults(processingData);
                 
+                logDebug(`\n=== PROCESSING COMPLETE ===`);
+                logDebug(`Combos: ${combos.length}, Accounts: ${accounts.length}, Matches: ${results.matches.length}`);
+                
             } catch (error) {
                 console.error('Error:', error);
+                logDebug(`ERROR: ${error.message}`);
                 alert('Error processing files: ' + error.message);
             } finally {
                 showLoading(false);
@@ -746,13 +876,13 @@
                     passwordMatch: match.passwordMatch,
                     id: match.id,
                     server: match.server,
-                    ign: match.fields.Name || match.fields['Name:'],
-                    level: match.fields.Level || match.fields['Level:'],
-                    lastLogin: match.fields['Last Login'] || match.fields['Last Login:'],
-                    currentRank: match.fields['Current Tier'] || match.fields['Current Tier:'],
-                    maxRank: match.fields['Max Tier'] || match.fields['Max Tier:'],
-                    winRate: match.fields['Win Rate'] || match.fields['Win Rate:'],
-                    bindings: match.fields['Bind Accounts'] || match.fields['Bind Accounts:'],
+                    ign: match.fields.Name || match.fields['Name:'] || match.fields.Name,
+                    level: match.fields.Level || match.fields['Level:'] || match.fields.Level,
+                    lastLogin: match.fields['Last Login'] || match.fields['Last Login:'] || match.fields['Last Login'],
+                    currentRank: match.fields['Current Tier'] || match.fields['Current Tier:'] || match.fields['Current Tier'],
+                    maxRank: match.fields['Max Tier'] || match.fields['Max Tier:'] || match.fields['Max Tier'],
+                    winRate: match.fields['Win Rate'] || match.fields['Win Rate:'] || match.fields['Win Rate'],
+                    bindings: match.fields['Bind Accounts'] || match.fields['Bind Accounts:'] || match.fields['Bind Accounts'],
                     skins: match.skins
                 })),
                 unmatchedCombos: processingData.unmatchedCombos.map(c => c.email),
@@ -792,12 +922,12 @@
                 txtContent += `${index + 1}. ${match.email}:${match.comboPassword}\n`;
                 txtContent += `   Password Match: ${match.passwordMatch ? 'YES' : 'NO'}\n`;
                 txtContent += `   ID: ${match.id} (Server: ${match.server})\n`;
-                txtContent += `   IGN: ${match.fields.Name || match.fields['Name:'] || 'N/A'}\n`;
-                txtContent += `   Level: ${match.fields.Level || match.fields['Level:'] || 'N/A'}\n`;
-                txtContent += `   Last Login: ${match.fields['Last Login'] || match.fields['Last Login:'] || 'N/A'}\n`;
-                txtContent += `   Rank: ${match.fields['Current Tier'] || match.fields['Current Tier:'] || 'N/A'} / ${match.fields['Max Tier'] || match.fields['Max Tier:'] || 'N/A'}\n`;
-                txtContent += `   Win Rate: ${match.fields['Win Rate'] || match.fields['Win Rate:'] || 'N/A'}\n`;
-                txtContent += `   Bindings: ${match.fields['Bind Accounts'] || match.fields['Bind Accounts:'] || 'N/A'}\n`;
+                txtContent += `   IGN: ${match.fields.Name || match.fields['Name:'] || match.fields.Name || 'N/A'}\n`;
+                txtContent += `   Level: ${match.fields.Level || match.fields['Level:'] || match.fields.Level || 'N/A'}\n`;
+                txtContent += `   Last Login: ${match.fields['Last Login'] || match.fields['Last Login:'] || match.fields['Last Login'] || 'N/A'}\n`;
+                txtContent += `   Rank: ${match.fields['Current Tier'] || match.fields['Current Tier:'] || match.fields['Current Tier'] || 'N/A'} / ${match.fields['Max Tier'] || match.fields['Max Tier:'] || match.fields['Max Tier'] || 'N/A'}\n`;
+                txtContent += `   Win Rate: ${match.fields['Win Rate'] || match.fields['Win Rate:'] || match.fields['Win Rate'] || 'N/A'}\n`;
+                txtContent += `   Bindings: ${match.fields['Bind Accounts'] || match.fields['Bind Accounts:'] || match.fields['Bind Accounts'] || 'N/A'}\n`;
                 txtContent += `   Skins - Grand:${match.skins.grand} Exquisite:${match.skins.exquisite} Deluxe:${match.skins.deluxe} Exceptional:${match.skins.exceptional} Common:${match.skins.common}\n`;
                 txtContent += '\n';
             });
